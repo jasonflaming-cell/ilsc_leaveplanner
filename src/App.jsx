@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-// Safe ID generator (works even if uid() is unavailable)
+
+// Safe ID generator (works even if crypto.randomUUID isn't available)
 const uid = () =>
-  (typeof crypto !== 'undefined' && uid())
-    ? uid()()
+  (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
     : `id_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`
 
 /*************************
@@ -54,8 +55,8 @@ const seed = () => {
     campuses: DEFAULT_CAMPUSES,
     campusLimits: Object.fromEntries(DEFAULT_CAMPUSES.map(c => [c, 1])),
     leaves: [
-      { id: crypto.uid()(), name: 'Alex', campus: 'Melbourne', role:'Advisor', start: fmtYMD(nextWeek), end: fmtYMD(addDays(nextWeek,4)), status:'Pending' },
-      { id: crypto.uid()(), name: 'Priya', campus: 'Sydney', role:'Reception', start: fmtYMD(addDays(nextWeek,2)), end: fmtYMD(addDays(nextWeek,6)), status:'Approved', approver:'System', decidedAt: new Date().toISOString() },
+      { id: uid(), name: 'Alex', campus: 'Melbourne', role:'Advisor', start: fmtYMD(nextWeek), end: fmtYMD(addDays(nextWeek,4)), status:'Pending' },
+      { id: uid(), name: 'Priya', campus: 'Sydney', role:'Reception', start: fmtYMD(addDays(nextWeek,2)), end: fmtYMD(addDays(nextWeek,6)), status:'Approved', approver:'System', decidedAt: new Date().toISOString() },
     ],
   }
 }
@@ -164,7 +165,7 @@ function App(){
     const check = validateNoOverlap(cand)
     if (!check.ok) { alert(check.reason); return }
     if (check.warn) { if (!confirm(check.warn + ' Continue?')) return }
-    setState(s => ({...s, leaves:[...s.leaves, { id: crypto.uid()(), ...cand }]}))
+    setState(s => ({...s, leaves:[...s.leaves, { id: uid(), ...cand }]}))
     setForm({ name:'', campus: campuses[0]||'', role:'', start:'', end:'', status:'Pending' })
   }
 
@@ -232,20 +233,22 @@ function App(){
     for (const r of required) { if (idx[r]===-1) { alert(`Please map a column for ${r}.`); return } }
 
     const rows = pendingTable.rows
-    const imported = []
-    for (const r of rows) {
-      const name = r[idx.name]; if (!name) continue
-      const campus = r[idx.campus] || campuses[0] || 'Campus'
-      const role = idx.role!==-1 ? r[idx.role] : ''
-      const status = normalizeStatus(idx.status!==-1 ? r[idx.status] : 'Pending')
-      const {start, end} = normalizeDates(r[idx.start], r[idx.end])
-      if (!start || !end) continue
-      imported.push({ id: crypto.uid()(), name:String(name).trim(), campus:String(campus).trim(), role:String(role||'').trim(), start, end, status })
+    theImported: {
+      const imported = []
+      for (const r of rows) {
+        const name = r[idx.name]; if (!name) continue
+        const campus = r[idx.campus] || campuses[0] || 'Campus'
+        const role = idx.role!==-1 ? r[idx.role] : ''
+        const status = normalizeStatus(idx.status!==-1 ? r[idx.status] : 'Pending')
+        const {start, end} = normalizeDates(r[idx.start], r[idx.end])
+        if (!start || !end) continue
+        imported.push({ id: uid(), name:String(name).trim(), campus:String(campus).trim(), role:String(role||'').trim(), start, end, status })
+      }
+      if (imported.length===0) { alert('No valid rows found.'); break theImported }
+      setState(s => ({...s, leaves:[...s.leaves, ...imported]}))
+      setPendingTable(null); setSheetPreview({headers:[], rows:[]})
+      alert(`Imported ${imported.length} rows.`)
     }
-    if (imported.length===0) { alert('No valid rows found.'); return }
-    setState(s => ({...s, leaves:[...s.leaves, ...imported]}))
-    setPendingTable(null); setSheetPreview({headers:[], rows:[]})
-    alert(`Imported ${imported.length} rows.`)
   }
 
   const normalizeStatus = (v) => {
@@ -257,7 +260,7 @@ function App(){
   const normalizeDates = (s, e) => {
     const asDate = (x) => {
       if (x instanceof Date) return x
-      if (typeof x === 'number' && XLSX.SSF && XLSX.SSF.parse_date_code) {
+      if (typeof x === 'number' && XLSX && XLSX.SSF && XLSX.SSF.parse_date_code) {
         const dt = XLSX.SSF.parse_date_code(x); if (!dt) return null; return new Date(Date.UTC(dt.y, dt.m-1, dt.d))
       }
       const d = new Date(x)
@@ -360,8 +363,7 @@ function App(){
                       <Button onClick={confirmExcelImport}>Import</Button>
                       <Button variant="ghost" onClick={()=>{ setPendingTable(null); setSheetPreview({headers:[], rows:[]}) }}>Cancel</Button>
                     </div>
-                    <div className="mt-3 text-xs text-slate-500">Preview shows first 20 rows for mapping.
-                    </div>
+                    <div className="mt-3 text-xs text-slate-500">Preview shows first 20 rows for mapping.</div>
                   </div>
                 )}
                 <div className="text-xs text-slate-500">You can also import/export JSON to sync data across browsers.</div>
