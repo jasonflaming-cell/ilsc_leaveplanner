@@ -1,5 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import * as XLSX from 'xlsx'
+// Safe ID generator (works even if crypto.uid() is unavailable)
+const uid = () =>
+  (typeof crypto !== 'undefined' && crypto.uid())
+    ? crypto.uid()()
+    : `id_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`
 
 /*************************
  * Minimal Annual Leave Web App (MVP+)
@@ -49,8 +54,8 @@ const seed = () => {
     campuses: DEFAULT_CAMPUSES,
     campusLimits: Object.fromEntries(DEFAULT_CAMPUSES.map(c => [c, 1])),
     leaves: [
-      { id: crypto.randomUUID(), name: 'Alex', campus: 'Melbourne', role:'Advisor', start: fmtYMD(nextWeek), end: fmtYMD(addDays(nextWeek,4)), status:'Pending' },
-      { id: crypto.randomUUID(), name: 'Priya', campus: 'Sydney', role:'Reception', start: fmtYMD(addDays(nextWeek,2)), end: fmtYMD(addDays(nextWeek,6)), status:'Approved', approver:'System', decidedAt: new Date().toISOString() },
+      { id: crypto.uid()(), name: 'Alex', campus: 'Melbourne', role:'Advisor', start: fmtYMD(nextWeek), end: fmtYMD(addDays(nextWeek,4)), status:'Pending' },
+      { id: crypto.uid()(), name: 'Priya', campus: 'Sydney', role:'Reception', start: fmtYMD(addDays(nextWeek,2)), end: fmtYMD(addDays(nextWeek,6)), status:'Approved', approver:'System', decidedAt: new Date().toISOString() },
     ],
   }
 }
@@ -159,7 +164,7 @@ function App(){
     const check = validateNoOverlap(cand)
     if (!check.ok) { alert(check.reason); return }
     if (check.warn) { if (!confirm(check.warn + ' Continue?')) return }
-    setState(s => ({...s, leaves:[...s.leaves, { id: crypto.randomUUID(), ...cand }]}))
+    setState(s => ({...s, leaves:[...s.leaves, { id: crypto.uid()(), ...cand }]}))
     setForm({ name:'', campus: campuses[0]||'', role:'', start:'', end:'', status:'Pending' })
   }
 
@@ -235,7 +240,7 @@ function App(){
       const status = normalizeStatus(idx.status!==-1 ? r[idx.status] : 'Pending')
       const {start, end} = normalizeDates(r[idx.start], r[idx.end])
       if (!start || !end) continue
-      imported.push({ id: crypto.randomUUID(), name:String(name).trim(), campus:String(campus).trim(), role:String(role||'').trim(), start, end, status })
+      imported.push({ id: crypto.uid()(), name:String(name).trim(), campus:String(campus).trim(), role:String(role||'').trim(), start, end, status })
     }
     if (imported.length===0) { alert('No valid rows found.'); return }
     setState(s => ({...s, leaves:[...s.leaves, ...imported]}))
