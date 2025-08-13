@@ -1,9 +1,9 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-// Safe ID generator (works even if crypto.uid() is unavailable)
+// Safe ID generator (works even if uid() is unavailable)
 const uid = () =>
-  (typeof crypto !== 'undefined' && crypto.uid())
-    ? crypto.uid()()
+  (typeof crypto !== 'undefined' && uid())
+    ? uid()()
     : `id_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`
 
 /*************************
