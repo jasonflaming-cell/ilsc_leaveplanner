@@ -1,11 +1,21 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 
-// Safe ID generator (works even if crypto.randomUUID isn't available)
+// --- ID helper + safety shim ---------------------------------
 const uid = () =>
   (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
     ? crypto.randomUUID()
     : `id_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`
+
+// If any old code still calls crypto.uid(), make it point to uid()
+try {
+  if (typeof crypto !== 'undefined' && typeof crypto.uid !== 'function') {
+    // @ts-ignore
+    crypto.uid = uid
+  }
+} catch (_) { /* ignore if crypto object is non-extensible */ }
+
+// ===============================================================
 
 /*************************
  * Minimal Annual Leave Web App (MVP+)
@@ -44,7 +54,6 @@ const overlaps = (aStart, aEnd, bStart, bEnd) => {
 const clamp = (n, min, max) => Math.max(min, Math.min(n, max))
 
 /***** Data model *****/
-// Leave item: { id, name, role, campus, start, end, status: 'Pending'|'Approved'|'Declined', approver?:string, decidedAt?:string }
 const DEFAULT_CAMPUSES = ["Melbourne","Sydney","Brisbane","Adelaide","Perth"]
 const STATUSES = ["Pending","Approved","Declined"]
 
@@ -126,7 +135,6 @@ function App(){
     (filterRole==='All' || (l.role||'')===filterRole)
   ), [leaves, filterCampus, filterStatus, filterRole])
 
-  // Roles list for filter
   const roles = useMemo(()=> Array.from(new Set(leaves.map(l => l.role).filter(Boolean))), [leaves])
 
   // Conflict detection (Approved only)
@@ -146,7 +154,6 @@ function App(){
   const [form, setForm] = useState({ name:'', campus: campuses[0]||'', role:'', start:'', end:'', status:'Pending' })
 
   const validateNoOverlap = (candidate, ignoreId=null) => {
-    // Only enforce against other Approved items (strict); warn if colliding with Pending
     const s = toDate(candidate.start); const e = toDate(candidate.end)
     if (s > e) return { ok:false, reason: 'Start date must be before end date.' }
     const limit = campusLimits[candidate.campus] || 1
@@ -212,7 +219,6 @@ function App(){
     const json = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:'' })
     const [header, ...rows] = json
     setSheetPreview({ headers: header||[], rows: rows.slice(0,20) })
-    // naive auto-map
     const lower = (s) => String(s).toLowerCase()
     const guess = (needle) => (header||[]).find(h => lower(h).includes(needle)) || ''
     setMapping({
@@ -225,6 +231,7 @@ function App(){
     })
     setPendingTable({ header, rows })
   }
+
   const confirmExcelImport = () => {
     if (!pendingTable) return
     const colIndex = (name) => (pendingTable.header||[]).findIndex(h => h===name)
@@ -233,22 +240,20 @@ function App(){
     for (const r of required) { if (idx[r]===-1) { alert(`Please map a column for ${r}.`); return } }
 
     const rows = pendingTable.rows
-    theImported: {
-      const imported = []
-      for (const r of rows) {
-        const name = r[idx.name]; if (!name) continue
-        const campus = r[idx.campus] || campuses[0] || 'Campus'
-        const role = idx.role!==-1 ? r[idx.role] : ''
-        const status = normalizeStatus(idx.status!==-1 ? r[idx.status] : 'Pending')
-        const {start, end} = normalizeDates(r[idx.start], r[idx.end])
-        if (!start || !end) continue
-        imported.push({ id: uid(), name:String(name).trim(), campus:String(campus).trim(), role:String(role||'').trim(), start, end, status })
-      }
-      if (imported.length===0) { alert('No valid rows found.'); break theImported }
-      setState(s => ({...s, leaves:[...s.leaves, ...imported]}))
-      setPendingTable(null); setSheetPreview({headers:[], rows:[]})
-      alert(`Imported ${imported.length} rows.`)
+    const imported = []
+    for (const r of rows) {
+      const name = r[idx.name]; if (!name) continue
+      const campus = r[idx.campus] || campuses[0] || 'Campus'
+      const role = idx.role!==-1 ? r[idx.role] : ''
+      const status = normalizeStatus(idx.status!==-1 ? r[idx.status] : 'Pending')
+      const {start, end} = normalizeDates(r[idx.start], r[idx.end])
+      if (!start || !end) continue
+      imported.push({ id: uid(), name:String(name).trim(), campus:String(campus).trim(), role:String(role||'').trim(), start, end, status })
     }
+    if (imported.length===0) { alert('No valid rows found.'); return }
+    setState(s => ({...s, leaves:[...s.leaves, ...imported]}))
+    setPendingTable(null); setSheetPreview({headers:[], rows:[]})
+    alert(`Imported ${imported.length} rows.`)
   }
 
   const normalizeStatus = (v) => {
@@ -423,14 +428,12 @@ function App(){
 
 /***** Gantt View grouped by campus *****/
 function GanttByCampus({campuses, leaves, windowStart, windowEnd, campusLimits}){
-  // Build lanes: campus -> items
   const byCampus = useMemo(()=>{
     const map = {}; for (const c of campuses) map[c] = []
     for (const l of leaves) map[l.campus] = (map[l.campus]||[]).concat(l)
     return map
   }, [leaves, campuses])
 
-  // Dimensions
   const dayMs = 24*3600*1000
   const totalDays = Math.max(1, Math.round((startOfDay(windowEnd) - startOfDay(windowStart))/dayMs) + 1)
   const colWidth = 28
@@ -442,7 +445,6 @@ function GanttByCampus({campuses, leaves, windowStart, windowEnd, campusLimits})
   return (
     <div className="overflow-auto">
       <div className="min-w-max">
-        {/* Header scale */}
         <div className="sticky top-0 bg-white z-10">
           <div className="flex">
             <div className="w-64"></div>
@@ -451,14 +453,12 @@ function GanttByCampus({campuses, leaves, windowStart, windowEnd, campusLimits})
             ))}
           </div>
         </div>
-        {/* Lanes */}
         {campuses.map(campus => (
           <div key={campus} className="border rounded-xl overflow-hidden mb-4">
             <div className="bg-slate-50 flex items-center justify-between px-3 py-2 text-sm font-semibold">
               <div>{campus} <span className="text-xs font-normal text-slate-500">(limit {campusLimits[campus]||1})</span></div>
             </div>
             <div>
-              {/* grid background */}
               <div className="flex">
                 <div className="w-64 border-r bg-white"></div>
                 {Array.from({length: totalDays}).map((_,i)=> (
@@ -466,7 +466,6 @@ function GanttByCampus({campuses, leaves, windowStart, windowEnd, campusLimits})
                 ))}
               </div>
               {(byCampus[campus]||[]).map((l, idx) => {
-                // Only draw bars that intersect window
                 const s = toDate(l.start), e = toDate(l.end)
                 if (!overlaps(s, e, windowStart, windowEnd)) return null
                 const left = xForDate(new Date(Math.max(s, windowStart)))
@@ -475,12 +474,10 @@ function GanttByCampus({campuses, leaves, windowStart, windowEnd, campusLimits})
                 const color = l.status==='Approved' ? 'bg-green-500/80' : l.status==='Declined' ? 'bg-rose-400/80' : 'bg-amber-400/80'
                 return (
                   <div key={l.id} className="relative">
-                    {/* name column */}
                     <div className="absolute left-0 top-0 w-64 h-[28px] flex items-center px-3 text-sm border-b bg-white">
                       <div className="truncate font-medium mr-2" title={`${l.name} · ${l.role||''}`}>{l.name}</div>
                       {l.role ? <Badge className="bg-slate-100 text-slate-700 border-slate-200">{l.role}</Badge> : null}
                     </div>
-                    {/* bar */}
                     <div className="ml-64" style={{ height: laneHeight }}>
                       <div className={`absolute rounded-md h-5 ${color} text-[10px] text-white px-2 flex items-center`} style={{ left: 64 + left, top: 4 + top, width }} title={`${l.name} • ${fmtYMD(s)} → ${fmtYMD(e)} • ${l.status}`}>
                         {fmtYMD(s)} → {fmtYMD(e)}
@@ -549,7 +546,7 @@ function LeaveTable({leaves, campuses, onDelete, onApprove, onDecline, onReset, 
                 <div className="flex flex-wrap gap-2">
                   {l.status!=='Approved' && <Button onClick={()=>onApprove(l)} title="Approve">Approve</Button>}
                   {l.status!=='Declined' && <Button variant="subtle" onClick={()=>onDecline(l)} title="Decline">Decline</Button>}
-                  {l.status!=='Pending' && <Button variant="ghost" onClick={()=>onReset(l)} title="Reset to Pending">Reset</Button>}
+                  {l.status!=='Pending' && <Button variant="ghost" onClick={()=>onReset(l)} title="Reset">Reset</Button>}
                   <Button variant="danger" onClick={()=>onDelete(l.id)} title="Delete">Delete</Button>
                 </div>
               </td>
